@@ -24,6 +24,7 @@ public class AntichamberModule : MonoBehaviour
 	bool? doubleOhRule;
 	bool? duplicateRule;
 
+	bool ModuleSolved;
     static int ModuleIdCounter = 1;
     int ModuleId;
 
@@ -62,11 +63,10 @@ public class AntichamberModule : MonoBehaviour
 	{
         gun = UnityEngine.Random.Range(0, 4);
 		roomindex = UnityEngine.Random.Range(0, 13);
-		GunButton.OnInteract += GunButtonCode;
-		ArrowLeft.OnInteract += LeftButtonCode;
-		ArrowRight.OnInteract += RightButtonCode;
-
-        Submit.OnInteract += SubmitEvent;
+		GunButton.OnInteract += delegate () { GunButtonCode(); return false; };
+		ArrowLeft.OnInteract += delegate () { ArrowButtonCode(false); return false; };
+        ArrowRight.OnInteract += delegate () { ArrowButtonCode(true); return false; };
+        Submit.OnInteract += delegate () { SubmitEvent(); return false; };
 		Gun.GetComponent<SpriteRenderer>().sprite = guns[gun];
 		RoomLabel.text = rooms[roomindex];
 
@@ -88,40 +88,40 @@ public class AntichamberModule : MonoBehaviour
 		Log(string.Format("Battery holders: {0}", holders));
 	}
 
-	protected bool GunButtonCode()
+	protected void GunButtonCode()
 	{
 		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, GunButton.transform);
 		GunButton.AddInteractionPunch();
-		gun++;
+        if (ModuleSolved)
+            return;
+
+        gun++;
 		if (gun >= 4) gun = 0;
 		Gun.GetComponent<SpriteRenderer>().sprite = guns[gun];
-		return false;
 	}
 
-	protected bool LeftButtonCode()
-	{
-		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, ArrowLeft.transform);
-		ArrowLeft.AddInteractionPunch();
-		roomindex--;
-		if (roomindex < 0) roomindex = 12;
-		RoomLabel.text = rooms[roomindex];
-		return false;
-	}
+	protected void ArrowButtonCode(bool right)
+	{ 
+		KMSelectable selectable = right ? ArrowRight : ArrowLeft;
+        KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, selectable.transform);
+        selectable.AddInteractionPunch();
 
-	protected bool RightButtonCode()
-	{
-		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, ArrowRight.transform);
-		ArrowRight.AddInteractionPunch();
-		roomindex++;
-		if (roomindex > 12) roomindex = 0;
-		RoomLabel.text = rooms[roomindex];
-		return false;
-	}
+		if (ModuleSolved)
+			return;
 
-	protected bool SubmitEvent()
+		roomindex = right ? Modulo(roomindex + 1, rooms.Length) : Modulo(roomindex - 1, rooms.Length);
+        RoomLabel.text = rooms[roomindex];
+    }
+
+    private int Modulo(int value, int modulo) { return ((value % modulo) + modulo) % modulo; }
+
+	protected void SubmitEvent()
 	{
 		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, Submit.transform);
 		Submit.AddInteractionPunch();
+		if(ModuleSolved)
+			return;
+
 		string correctRoom = GetCorrectRoom().ToLower();
 		string expectedRoom = rooms[roomindex].ToLower();
 
@@ -129,14 +129,11 @@ public class AntichamberModule : MonoBehaviour
 		Log(string.Format("Expected the {0} gun in {1}", gunColors[determine - 1], correctRoom));
 
 
-
 		if (gunColors[determine - 1] == gunColors[gun] && expectedRoom == correctRoom)
 			ModuleCompleted();
 
 		else
             ModuleFail();
-
-		return false;
 	}
 
 	private string GetCorrectRoom()
@@ -190,41 +187,11 @@ public class AntichamberModule : MonoBehaviour
 		return "Window Of Opportunity";
     }
 
-	protected bool FailHandlePassGun()
-	{
-		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, GunButton.transform);
-		GunButton.AddInteractionPunch();
-		return false;
-	}
-
-	protected bool FailHandlePassLeft()
-	{
-		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, ArrowLeft.transform);
-		ArrowLeft.AddInteractionPunch();
-		return false;
-	}
-
-	protected bool FailHandlePassRight()
-	{
-		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, ArrowRight.transform);
-		ArrowRight.AddInteractionPunch();
-		return false;
-	}
-
-	protected bool FailHandlePassSubmit()
-	{
-		KMAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, Submit.transform);
-		Submit.AddInteractionPunch();
-		return false;
-	}
 
 	protected bool ModuleCompleted()
 	{
-		BombModule.HandlePass();
-		GunButton.OnInteract = FailHandlePassGun;
-		ArrowLeft.OnInteract = FailHandlePassLeft;
-		ArrowRight.OnInteract = FailHandlePassRight;
-		Submit.OnInteract = FailHandlePassSubmit;
+		ModuleSolved = true;
+        BombModule.HandlePass();
 		return false;
 	}
 
@@ -321,4 +288,13 @@ public class AntichamberModule : MonoBehaviour
 			yield break;
 		}
 	}
+
+	IEnumerator TwitchHandleForcedSolve()
+	{ 
+        yield return ProcessTwitchCommand(string.Format("gun {0}", gunColors[determine - 1]));
+        yield return ProcessTwitchCommand(string.Format("room {0}", GetCorrectRoom()));
+        yield return ProcessTwitchCommand("submit");
+        while (!ModuleSolved)
+            yield return null;
+    }
 }
